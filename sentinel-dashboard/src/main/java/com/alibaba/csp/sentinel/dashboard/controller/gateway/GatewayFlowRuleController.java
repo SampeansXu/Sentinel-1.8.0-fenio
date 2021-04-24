@@ -18,33 +18,34 @@ package com.alibaba.csp.sentinel.dashboard.controller.gateway;
 
 import com.alibaba.csp.sentinel.dashboard.auth.AuthAction;
 import com.alibaba.csp.sentinel.dashboard.auth.AuthService;
-import com.alibaba.csp.sentinel.dashboard.client.SentinelApiClient;
 import com.alibaba.csp.sentinel.dashboard.datasource.entity.gateway.GatewayFlowRuleEntity;
 import com.alibaba.csp.sentinel.dashboard.datasource.entity.gateway.GatewayParamFlowItemEntity;
-import com.alibaba.csp.sentinel.dashboard.discovery.MachineInfo;
 import com.alibaba.csp.sentinel.dashboard.domain.Result;
 import com.alibaba.csp.sentinel.dashboard.domain.vo.gateway.rule.AddFlowRuleReqVo;
 import com.alibaba.csp.sentinel.dashboard.domain.vo.gateway.rule.GatewayParamFlowItemVo;
 import com.alibaba.csp.sentinel.dashboard.domain.vo.gateway.rule.UpdateFlowRuleReqVo;
 import com.alibaba.csp.sentinel.dashboard.repository.gateway.InMemGatewayFlowRuleStore;
+import com.alibaba.csp.sentinel.dashboard.rule.DynamicRuleProvider;
+import com.alibaba.csp.sentinel.dashboard.rule.DynamicRulePublisher;
 import com.alibaba.csp.sentinel.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 
-import static com.alibaba.csp.sentinel.slots.block.RuleConstant.*;
 import static com.alibaba.csp.sentinel.adapter.gateway.common.SentinelGatewayConstants.*;
 import static com.alibaba.csp.sentinel.dashboard.datasource.entity.gateway.GatewayFlowRuleEntity.*;
+import static com.alibaba.csp.sentinel.slots.block.RuleConstant.*;
 
 /**
  * Gateway flow rule Controller for manage gateway flow rules.
  *
- * @author cdfive
+ * @author by fenio for rules save to nacos
  * @since 1.7.0
  */
 @RestController
@@ -54,10 +55,15 @@ public class GatewayFlowRuleController {
     private final Logger logger = LoggerFactory.getLogger(GatewayFlowRuleController.class);
 
     @Autowired
-    private InMemGatewayFlowRuleStore repository;
+    @Qualifier("gatewayFlowRuleNacosProvider")
+    private DynamicRuleProvider<List<GatewayFlowRuleEntity>> ruleProvider;
+    @Autowired
+    @Qualifier("gatewayFlowRuleNacosPublisher")
+    private DynamicRulePublisher<List<GatewayFlowRuleEntity>> rulePublisher;
+
 
     @Autowired
-    private SentinelApiClient sentinelApiClient;
+    private InMemGatewayFlowRuleStore repository;
 
     @GetMapping("/list.json")
     @AuthAction(AuthService.PrivilegeType.READ_RULE)
@@ -74,8 +80,8 @@ public class GatewayFlowRuleController {
         }
 
         try {
-            List<GatewayFlowRuleEntity> rules = sentinelApiClient.fetchGatewayFlowRules(app, ip, port).get();
-            repository.saveAll(rules);
+            List<GatewayFlowRuleEntity> rules = ruleProvider.getRules(app);
+            rules = repository.saveAll(rules);
             return Result.ofSuccess(rules);
         } catch (Throwable throwable) {
             logger.error("query gateway flow rules error:", throwable);
@@ -146,17 +152,18 @@ public class GatewayFlowRuleController {
                     return Result.ofFail(-1, "fieldName can't be null or empty");
                 }
                 itemEntity.setFieldName(paramItem.getFieldName());
-            }
 
-            String pattern = paramItem.getPattern();
-            // 如果匹配串不为空，验证匹配模式
-            if (StringUtil.isNotEmpty(pattern)) {
-                itemEntity.setPattern(pattern);
-                Integer matchStrategy = paramItem.getMatchStrategy();
-                if (!Arrays.asList(PARAM_MATCH_STRATEGY_EXACT, PARAM_MATCH_STRATEGY_CONTAINS, PARAM_MATCH_STRATEGY_REGEX).contains(matchStrategy)) {
-                    return Result.ofFail(-1, "invalid matchStrategy: " + matchStrategy);
+                String pattern = paramItem.getPattern();
+                // 如果匹配串不为空，验证匹配模式
+                if (StringUtil.isNotEmpty(pattern)) {
+                    itemEntity.setPattern(pattern);
+
+                    Integer matchStrategy = paramItem.getMatchStrategy();
+                    if (!Arrays.asList(PARAM_MATCH_STRATEGY_EXACT, PARAM_MATCH_STRATEGY_CONTAINS, PARAM_MATCH_STRATEGY_REGEX).contains(matchStrategy)) {
+                        return Result.ofFail(-1, "invalid matchStrategy: " + matchStrategy);
+                    }
+                    itemEntity.setMatchStrategy(matchStrategy);
                 }
-                itemEntity.setMatchStrategy(matchStrategy);
             }
         }
 
@@ -238,13 +245,10 @@ public class GatewayFlowRuleController {
 
         try {
             entity = repository.save(entity);
+            publishRules(app);
         } catch (Throwable throwable) {
             logger.error("add gateway flow rule error:", throwable);
             return Result.ofThrowable(-1, throwable);
-        }
-
-        if (!publishRules(app, ip, port)) {
-            logger.warn("publish gateway flow rules fail after add");
         }
 
         return Result.ofSuccess(entity);
@@ -291,17 +295,18 @@ public class GatewayFlowRuleController {
                     return Result.ofFail(-1, "fieldName can't be null or empty");
                 }
                 itemEntity.setFieldName(paramItem.getFieldName());
-            }
 
-            String pattern = paramItem.getPattern();
-            // 如果匹配串不为空，验证匹配模式
-            if (StringUtil.isNotEmpty(pattern)) {
-                itemEntity.setPattern(pattern);
-                Integer matchStrategy = paramItem.getMatchStrategy();
-                if (!Arrays.asList(PARAM_MATCH_STRATEGY_EXACT, PARAM_MATCH_STRATEGY_CONTAINS, PARAM_MATCH_STRATEGY_REGEX).contains(matchStrategy)) {
-                    return Result.ofFail(-1, "invalid matchStrategy: " + matchStrategy);
+                String pattern = paramItem.getPattern();
+                // 如果匹配串不为空，验证匹配模式
+                if (StringUtil.isNotEmpty(pattern)) {
+                    itemEntity.setPattern(pattern);
+
+                    Integer matchStrategy = paramItem.getMatchStrategy();
+                    if (!Arrays.asList(PARAM_MATCH_STRATEGY_EXACT, PARAM_MATCH_STRATEGY_CONTAINS, PARAM_MATCH_STRATEGY_REGEX).contains(matchStrategy)) {
+                        return Result.ofFail(-1, "invalid matchStrategy: " + matchStrategy);
+                    }
+                    itemEntity.setMatchStrategy(matchStrategy);
                 }
-                itemEntity.setMatchStrategy(matchStrategy);
             }
         } else {
             entity.setParamItem(null);
@@ -384,13 +389,10 @@ public class GatewayFlowRuleController {
 
         try {
             entity = repository.save(entity);
+            publishRules(entity.getApp());
         } catch (Throwable throwable) {
             logger.error("update gateway flow rule error:", throwable);
             return Result.ofThrowable(-1, throwable);
-        }
-
-        if (!publishRules(app, entity.getIp(), entity.getPort())) {
-            logger.warn("publish gateway flow rules fail after update");
         }
 
         return Result.ofSuccess(entity);
@@ -412,20 +414,17 @@ public class GatewayFlowRuleController {
 
         try {
             repository.delete(id);
+            publishRules(oldEntity.getApp());
         } catch (Throwable throwable) {
             logger.error("delete gateway flow rule error:", throwable);
             return Result.ofThrowable(-1, throwable);
         }
 
-        if (!publishRules(oldEntity.getApp(), oldEntity.getIp(), oldEntity.getPort())) {
-            logger.warn("publish gateway flow rules fail after delete");
-        }
-
         return Result.ofSuccess(id);
     }
 
-    private boolean publishRules(String app, String ip, Integer port) {
-        List<GatewayFlowRuleEntity> rules = repository.findAllByMachine(MachineInfo.of(app, ip, port));
-        return sentinelApiClient.modifyGatewayFlowRules(app, ip, port, rules);
+    private void publishRules(String app) throws Exception {
+        List<GatewayFlowRuleEntity> rules = repository.findAllByApp(app);
+        rulePublisher.publish(app, rules);
     }
 }

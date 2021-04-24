@@ -95,10 +95,11 @@ app.controller('IdentityCtl', ['$scope', '$stateParams', 'IdentityService',
       FlowService.newRule(flowRuleDialogScope.currentRule).success(function (data) {
         if (data.code === 0) {
           flowRuleDialog.close();
-          let url = '/dashboard/flow/' + $scope.app;
+          //by fenio for rules save to nacos
+          let url = '/dashboard/v2/flow/' + $scope.app;
           $location.path(url);
         } else {
-          alert('失败：' + data.msg);
+          alert('失败!');
         }
       }).error((data, header, config, status) => {
           alert('未知错误');
@@ -110,10 +111,10 @@ app.controller('IdentityCtl', ['$scope', '$stateParams', 'IdentityService',
             return;
         }
       FlowService.newRule(flowRuleDialogScope.currentRule).success(function (data) {
-        if (data.code === 0) {
+        if (data.code == 0) {
           flowRuleDialog.close();
         } else {
-            alert('失败：' + data.msg);
+          alert('失败!');
         }
       });
     }
@@ -132,8 +133,6 @@ app.controller('IdentityCtl', ['$scope', '$stateParams', 'IdentityService',
         strategy: 0,
         resource: resource,
         limitApp: 'default',
-        minRequestAmount: 5,
-        statIntervalMs: 1000,
         app: $scope.app,
         ip: mac[0],
         port: mac[1]
@@ -161,12 +160,12 @@ app.controller('IdentityCtl', ['$scope', '$stateParams', 'IdentityService',
             return;
         }
       DegradeService.newRule(degradeRuleDialogScope.currentRule).success(function (data) {
-        if (data.code === 0) {
+        if (data.code == 0) {
           degradeRuleDialog.close();
           var url = '/dashboard/degrade/' + $scope.app;
           $location.path(url);
         } else {
-          alert('失败：' + data.msg);
+          alert('失败!');
         }
       });
     }
@@ -176,10 +175,10 @@ app.controller('IdentityCtl', ['$scope', '$stateParams', 'IdentityService',
             return;
         }
       DegradeService.newRule(degradeRuleDialogScope.currentRule).success(function (data) {
-        if (data.code === 0) {
+        if (data.code == 0) {
           degradeRuleDialog.close();
         } else {
-            alert('失败：' + data.msg);
+          alert('失败!');
         }
       });
     }
